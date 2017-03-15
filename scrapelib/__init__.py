@@ -286,18 +286,52 @@ class Scraper(CachingSession, ThrottledSession, RetrySession):
         self.stats['total_time'] += (time.time() - _start_time)
         self.stats['average_time'] = self.stats['total_time'] / self.stats['total_requests']
 
-        # CUSTOM QUORUM LOGIC: try with proxy first
-        kwargs['proxies'] = proxy_dict
-        resp = super(Scraper, self).request(method, url, timeout=timeout, headers=headers,
-                                            **kwargs)
-        if self.raise_errors and not self.accept_response(resp):
-            kwargs.pop('proxies')
-            resp = super(Scraper, self).request(method, url, timeout=timeout, headers=headers,
-                                                **kwargs)
-            if self.raise_errors and not self.accept_response(resp):
-                raise HTTPError(resp)
+        def make_request(use_proxy=False):
+            if use_proxy:
+                resp = super(Scraper, self).request(
+                    method,
+                    url,
+                    timeout=timeout,
+                    headers=headers,
+                    proxies=proxy_dict,
+                    **kwargs
+                )
+            else:
+                resp = super(Scraper, self).request(
+                    method,
+                    url,
+                    timeout=timeout,
+                    headers=headers,
+                    **kwargs
+                )
+            return resp
 
-        return resp
+        def good_response(resp):
+            return not self.raise_errors or self.accept_response(resp)
+
+        # CUSTOM QUORUM LOGIC
+        # Try 3 times with proxy and 3 times without
+        # wait 10 seconds after each failed try
+        NUM_RETRIES = 6
+        for i in range(NUM_RETRIES):
+            if i < 3:
+                use_proxy = True
+            else:
+                use_proxy = False
+
+            # make request
+            resp = make_request(use_proxy)
+            # if good response return
+            if good_response(resp):
+                return resp
+            # else sleep 10 seconds
+            else:
+                _log.info("Failed request attempt...")
+                if i != (NUM_RETRIES - 1):
+                    time.sleep(10)
+
+        # if still haven't returned response then raise HTTPError
+        raise HTTPError(resp)
 
     def urlretrieve(self, url, filename=None, method='GET', body=None, dir=None, **kwargs):
         """

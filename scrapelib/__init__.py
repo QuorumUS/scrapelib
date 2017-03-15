@@ -326,7 +326,7 @@ class Scraper(CachingSession, ThrottledSession, RetrySession):
                 return resp
             # else sleep 10 seconds
             else:
-                _log.info("Failed request attempt...")
+                _log.info("Failed request attempt:", resp.content)
                 if i != (NUM_RETRIES - 1):
                     time.sleep(10)
 

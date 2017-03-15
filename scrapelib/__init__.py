@@ -7,6 +7,9 @@ import time
 import requests
 from .cache import CachingSession, FileCache    # noqa
 
+# CUSTOM POXY FOR QUORUM
+proxy_dict = {'http': 'http://localhost:1031', 'https': 'http://localhost:1031'}
+
 if sys.version_info[0] < 3:         # pragma: no cover
     from urllib2 import urlopen as urllib_urlopen
     from urllib2 import URLError as urllib_URLError
@@ -283,8 +286,17 @@ class Scraper(CachingSession, ThrottledSession, RetrySession):
         self.stats['total_time'] += (time.time() - _start_time)
         self.stats['average_time'] = self.stats['total_time'] / self.stats['total_requests']
 
+        # CUSTOM QUORUM LOGIC: try with proxy first
+        kwargs['proxies'] = proxy_dict
+        resp = super(Scraper, self).request(method, url, timeout=timeout, headers=headers,
+                                            **kwargs)
         if self.raise_errors and not self.accept_response(resp):
-            raise HTTPError(resp)
+            kwargs.pop('proxies')
+            resp = super(Scraper, self).request(method, url, timeout=timeout, headers=headers,
+                                                **kwargs)
+            if self.raise_errors and not self.accept_response(resp):
+                raise HTTPError(resp)
+
         return resp
 
     def urlretrieve(self, url, filename=None, method='GET', body=None, dir=None, **kwargs):

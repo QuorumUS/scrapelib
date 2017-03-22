@@ -324,6 +324,9 @@ class Scraper(CachingSession, ThrottledSession, RetrySession):
             # if good response return
             if good_response(resp):
                 return resp
+            # else if 500 raise HTTPError
+            elif resp.status_code == 500:
+                raise HTTPError(resp)
             # else sleep 10 seconds
             else:
                 _log.info("Failed request attempt: %s" % resp.status_code)

@@ -304,7 +304,7 @@ class Scraper(CachingSession, ThrottledSession, RetrySession):
                     headers=headers,
                     **kwargs
                 )
-            except Exception ex:
+            except Exception, ex:
                 _log.info("Failed request attempt: %s" % ex)
                 return None
 

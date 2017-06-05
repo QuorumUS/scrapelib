@@ -280,30 +280,41 @@ class Scraper(CachingSession, ThrottledSession, RetrySession):
 
         _start_time = time.time()
 
-        resp = super(Scraper, self).request(method, url, timeout=timeout, headers=headers,
-                                            **kwargs)
+        # if first try fails, try once with veryify=False
+        # b/c sometimes state websites have bad SSL certificates
+        try:
+            resp = super(Scraper, self).request(method, url, timeout=timeout, headers=headers,
+                                                **kwargs)
+        except:
+            resp = super(Scraper, self).request(method, url, timeout=timeout, headers=headers, verify=False,
+                                                **kwargs)
+
         self.stats['total_requests'] += 1
         self.stats['total_time'] += (time.time() - _start_time)
         self.stats['average_time'] = self.stats['total_time'] / self.stats['total_requests']
 
-        def make_request(use_proxy=False):
-            if use_proxy:
-                resp = super(Scraper, self).request(
-                    method,
-                    url,
-                    timeout=timeout,
-                    headers=headers,
-                    proxies=proxy_dict,
-                    **kwargs
-                )
-            else:
-                resp = super(Scraper, self).request(
-                    method,
-                    url,
-                    timeout=timeout,
-                    headers=headers,
-                    **kwargs
-                )
+        def make_request(use_proxy=False, verify=True):
+            try:
+                if use_proxy:
+                    resp = super(Scraper, self).request(
+                        method,
+                        url,
+                        timeout=timeout,
+                        headers=headers,
+                        proxies=proxy_dict,
+                        verify=verify,
+                        **kwargs
+                    )
+                else:
+                    resp = super(Scraper, self).request(
+                        method,
+                        url,
+                        timeout=timeout,
+                        headers=headers,
+                        verify=verify,
+                        **kwargs
+                    )
+                return resp
             except Exception, ex:
                 _log.info("Failed request attempt: %s" % ex)
                 return None
@@ -311,27 +322,28 @@ class Scraper(CachingSession, ThrottledSession, RetrySession):
         def good_response(resp):
             return not self.raise_errors or self.accept_response(resp)
 
-        # CUSTOM QUORUM LOGIC
-        # Try 3 times with proxy and 3 times without
-        # wait 10 seconds after each failed try
-        NUM_RETRIES = 6
-        for i in range(NUM_RETRIES):
-            if i < 3:
-                use_proxy = True
-            else:
-                use_proxy = False
+        for verify in [True, False]:
+            # CUSTOM QUORUM LOGIC
+            # Try 2 times with proxy and 2 times without
+            # wait 10 seconds after each failed try
+            NUM_RETRIES = 4
+            for i in range(NUM_RETRIES):
+                if i < 4:
+                    use_proxy = True
+                else:
+                    use_proxy = False
 
-            # make request
-            resp = make_request(use_proxy)
-            # if good response return
-            if resp and good_response(resp):
-                return resp
-            # else sleep 10 seconds
-            else:
-                if resp:
-                    _log.info("Failed request attempt: %s" % resp.status_code)
-                if i != (NUM_RETRIES - 1):
-                    time.sleep(1)
+                # make request
+                resp = make_request(use_proxy, verify)
+                # if good response return
+                if resp and good_response(resp):
+                    return resp
+                # else sleep 10 seconds
+                else:
+                    if resp and resp.status_code:
+                        _log.info("Failed request attempt: %s" % resp.status_code)
+                    if i != (NUM_RETRIES - 1):
+                        time.sleep(1)
 
         # if still haven't returned response then raise HTTPError
         raise HTTPError(resp)

@@ -293,7 +293,7 @@ class Scraper(CachingSession, ThrottledSession, RetrySession):
         self.stats['total_time'] += (time.time() - _start_time)
         self.stats['average_time'] = self.stats['total_time'] / self.stats['total_requests']
 
-        def make_request(use_proxy=False, verify=True):
+        def make_request(use_proxy=False):
             try:
                 if use_proxy:
                     resp = super(Scraper, self).request(
@@ -302,7 +302,6 @@ class Scraper(CachingSession, ThrottledSession, RetrySession):
                         timeout=timeout,
                         headers=headers,
                         proxies=proxy_dict,
-                        verify=verify,
                         **kwargs
                     )
                 else:
@@ -311,7 +310,6 @@ class Scraper(CachingSession, ThrottledSession, RetrySession):
                         url,
                         timeout=timeout,
                         headers=headers,
-                        verify=verify,
                         **kwargs
                     )
                 return resp
@@ -322,31 +320,33 @@ class Scraper(CachingSession, ThrottledSession, RetrySession):
         def good_response(resp):
             return not self.raise_errors or self.accept_response(resp)
 
-        for verify in [True, False]:
-            # CUSTOM QUORUM LOGIC
-            # Try 2 times with proxy and 2 times without
-            # wait 10 seconds after each failed try
-            NUM_RETRIES = 4
-            for i in range(NUM_RETRIES):
-                if i < 4:
-                    use_proxy = True
-                else:
-                    use_proxy = False
+        # CUSTOM QUORUM LOGIC
+        # Try 2 times with proxy and 2 times without
+        # wait 10 seconds after each failed try
+        NUM_RETRIES = 4
+        for i in range(NUM_RETRIES):
+            if i < 4:
+                use_proxy = True
+            else:
+                use_proxy = False
 
-                # make request
-                resp = make_request(use_proxy, verify)
-                # if good response return
-                if resp and good_response(resp):
-                    return resp
-                # else sleep 10 seconds
-                else:
-                    if resp and resp.status_code:
-                        _log.info("Failed request attempt: %s" % resp.status_code)
-                    if i != (NUM_RETRIES - 1):
-                        time.sleep(1)
+            # make request
+            resp = make_request(use_proxy)
+            # if good response return
+            if resp and good_response(resp):
+                return resp
+            # else sleep 10 seconds
+            else:
+                if resp and resp.status_code:
+                    _log.info("Failed request attempt: %s" % resp.status_code)
+                if i != (NUM_RETRIES - 1):
+                    time.sleep(1)
 
         # if still haven't returned response then raise HTTPError
-        raise HTTPError(resp)
+        if resp:
+            raise HTTPError(resp)
+        else:
+            raise
 
     def urlretrieve(self, url, filename=None, method='GET', body=None, dir=None, **kwargs):
         """
@@ -387,6 +387,16 @@ class Scraper(CachingSession, ThrottledSession, RetrySession):
         f.close()
 
         return filename, result
+
+
+class InvalidHTTPSScraper(Scraper):
+    """
+    Class for Scrapers who need to pass verify=False because
+    website has bad SSl certificate
+    """
+    def request(self, *args, **kwargs):
+        return super(InvalidHTTPSScraper, self).request(
+            *args, verify=False, **kwargs)
 
 
 _default_scraper = Scraper(requests_per_minute=0)

@@ -312,10 +312,10 @@ class Scraper(CachingSession, ThrottledSession, RetrySession):
                         headers=headers,
                         **kwargs
                     )
-                return resp
+                return resp, True
             except Exception, ex:
                 _log.info("Failed request attempt: %s" % ex)
-                return None
+                return ex, False
 
         def good_response(resp):
             return not self.raise_errors or self.accept_response(resp)
@@ -331,22 +331,25 @@ class Scraper(CachingSession, ThrottledSession, RetrySession):
                 use_proxy = False
 
             # make request
-            resp = make_request(use_proxy)
+            resp, is_response = make_request(use_proxy)
             # if good response return
-            if resp and good_response(resp):
+            if is_response and good_response(resp):
                 return resp
-            # else sleep 10 seconds
+            # else sleep 3 seconds
             else:
                 if resp and resp.status_code:
                     _log.info("Failed request attempt: %s" % resp.status_code)
+                else:
+                    _log.info("Failed request attempt")
+
                 if i != (NUM_RETRIES - 1):
-                    time.sleep(1)
+                    time.sleep(3)
 
         # if still haven't returned response then raise HTTPError
-        if resp:
+        if is_response:
             raise HTTPError(resp)
         else:
-            raise
+            raise resp
 
     def urlretrieve(self, url, filename=None, method='GET', body=None, dir=None, **kwargs):
         """
